@@ -1,8 +1,8 @@
 """
-Runs the exact same FPGACNN model (1 conv layer + pool + FC) on the CPU
-using PyTorch, and measures how long inference actually takes -- both for
-single images and in a batch -- so you can compare it against the FPGA's
-measured hardware time (~1.4ms/image from the Vivado simulation).
+Runs the exact same FPGACNN model (2 conv layers + pool + FC) on the CPU
+using PyTorch, and measures how long inference takes — both single-image
+and batched — so you can compare it against the FPGA's measured hardware
+time.
 
 Two modes:
   1. If test_images/ (from export_test_images.py) exists, benchmarks on
@@ -20,11 +20,11 @@ import numpy as np
 
 from train_model import FPGACNN
 
-WEIGHTS_FILE = "fpga_cnn_weights.pth"
-TEST_IMAGE_DIR = "test_images"
-NUM_WARMUP = 5          # untimed runs first, to avoid cold-start noise
-NUM_TIMED_RUNS = 200    # single-image timing repeats, for a stable average
-BATCH_SIZE = 64         # for the batched-throughput measurement
+WEIGHTS_FILE    = "fpga_cnn_weights.pth"
+TEST_IMAGE_DIR   = "test_images"
+NUM_WARMUP      = 5          # untimed runs first, to avoid cold-start noise
+NUM_TIMED_RUNS  = 200        # single-image timing repeats, for a stable average
+BATCH_SIZE      = 64         # for the batched-throughput measurement
 
 
 def load_model():
@@ -35,7 +35,7 @@ def load_model():
         )
     model.load_state_dict(torch.load(WEIGHTS_FILE, map_location="cpu"))
     model.eval()
-    torch.set_num_threads(1)  # fair single-core comparison against the FPGA's single MAC unit
+    torch.set_num_threads(1)  # fair single-core comparison against the FPGA
     return model
 
 
@@ -118,7 +118,7 @@ def main():
     min_ms = min(repeat_times) * 1000
     max_ms = max(repeat_times) * 1000
 
-    # ---- Batched throughput (how fast if you process many images at once) ----
+    # ---- Batched throughput ----
     batch = torch.stack(tensors[:min(BATCH_SIZE, len(tensors))])
     if batch.dim() == 3:
         batch = batch.unsqueeze(1)
@@ -133,10 +133,10 @@ def main():
     print(f"Batched inference ({batch.shape[0]} images at once): "
           f"{per_image_in_batch_ms:.4f} ms/image ({batch_elapsed*1000:.2f} ms total)")
 
-    print("\nFor comparison: the FPGA's sequential single-MAC pipeline measured")
-    print("~1.4 ms/image in Vivado simulation for conv+pool+fc compute alone")
-    print("(not counting the ~68 ms UART transfer time, which is a link-speed")
-    print("limitation, not a compute limitation).")
+    print("\nFor comparison: the FPGA's parallel 9-MAC pipeline (2 conv layers)")
+    print("measured in Vivado simulation is the number to compare against the")
+    print("single-image number above. UART transfer time (~68 ms @ 115200 baud)")
+    print("is a link-speed limitation, not a compute limitation.")
 
 
 if __name__ == "__main__":
