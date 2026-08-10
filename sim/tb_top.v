@@ -1,10 +1,15 @@
 `timescale 1ns / 1ps
-// Basic testbench: generates a 100MHz clock, holds reset, then bit-bangs
-// 784 UART bytes (a synthetic ramp image) into RsRx at 115200 baud and
-// waits for the master FSM to finish, then prints the predicted digit.
+// =====================================================================
+//  tb_top.v  —  Basic testbench for the upgraded 2-conv + 9-MAC design
+// =====================================================================
+//  Generates a 100MHz clock, releases reset, then bit-bangs 784 UART
+//  bytes (a synthetic ramp image) into RsRx at 115200 baud and waits
+//  for the master FSM to finish, then prints the predicted digit.
 //
-// NOTE: You must have conv1_weights.mem and fc_weights.mem in the
-// simulation working directory before running this (see python/quantize_export.py).
+//  You must have conv1_weights.mem, conv2_weights.mem, and
+//  fc_weights.mem in the simulation working directory before running
+//  this (they live in rtl/ — see python/quantize_export.py).
+// =====================================================================
 module tb_top;
     reg clk = 0;
     reg btnC = 1;
@@ -46,10 +51,11 @@ module tb_top;
             send_byte(p % 256);
         end
 
-        // Sending 784 bytes at 115200 baud takes ~784 * 10 bits * 8680ns
-        // = ~68ms by itself, before the compute pipeline even starts.
-        // Give it generous margin beyond that for conv+pool+fc to finish.
-        wait (led[4] == 1'b1 || $time > 200_000_000); // 200ms timeout
+        // Sending 784 bytes at 115200 baud takes ~68ms by itself.
+        // The compute pipeline (conv1 + pool1 + conv2 + pool2 + fc) runs
+        // for hundreds of thousands of cycles at 100MHz, so allow up to
+        // 500ms wall time before declaring a timeout.
+        wait (led[4] == 1'b1 || $time > 500_000_000); // 500ms timeout
 
         if (led[4])
             $display("PASS: predicted digit = %0d at time %0t", led[3:0], $time);

@@ -1,12 +1,17 @@
 """
-Trains a tiny, hardware-friendly CNN on MNIST that matches the RTL in
+Trains a tiny, hardware-friendly CNN on MNIST that matches the upgraded RTL in
 ../rtl exactly:
 
-    Conv2d(1 -> 4, kernel=3, stride=1, padding=0, bias=False)  # 28x28 -> 26x26x4
+    Conv2d(1  -> 8,  kernel=3, stride=1, padding=0, bias=False)   # 28x28 -> 26x26x8
     ReLU
-    MaxPool2d(2, 2)                                            # -> 13x13x4
-    Flatten                                                    # -> 676
-    Linear(676 -> 10, bias=False)
+    MaxPool2d(2, 2)                                              # -> 13x13x8
+    Conv2d(8  -> 16, kernel=3, stride=1, padding=0, bias=False)  # -> 11x11x16
+    ReLU
+    MaxPool2d(2, 2)                                              # -> 5x5x16 = 400
+    Flatten
+    Linear(400 -> 10, bias=False)
+
+Trains for 12 epochs with Adam(lr=0.001) and StepLR(step_size=4, gamma=0.5).
 
 Run:  python train_model.py
 Output: fpga_cnn_weights.pth
@@ -21,14 +26,18 @@ from torch.utils.data import DataLoader
 class FPGACNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, bias=False)   # 26x26x4
-        self.pool = nn.MaxPool2d(2, 2)                             # 13x13x4
-        self.fc = nn.Linear(4 * 13 * 13, 10, bias=False)
-        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(1,  8,  kernel_size=3, bias=False)   # 28x28 -> 26x26x8
+        self.pool1 = nn.MaxPool2d(2, 2)                              # -> 13x13x8
+        self.conv2 = nn.Conv2d(8,  16, kernel_size=3, bias=False)   # -> 11x11x16
+        self.pool2 = nn.MaxPool2d(2, 2)                              # -> 5x5x16 = 400
+        self.fc    = nn.Linear(16 * 5 * 5, 10, bias=False)          # 400 -> 10
+        self.relu  = nn.ReLU()
 
     def forward(self, x):
         x = self.relu(self.conv1(x))
-        x = self.pool(x)
+        x = self.pool1(x)
+        x = self.relu(self.conv2(x))
+        x = self.pool2(x)
         x = x.view(x.size(0), -1)  # channel-major flatten, matches RTL addressing
         x = self.fc(x)
         return x
@@ -36,16 +45,17 @@ class FPGACNN(nn.Module):
 
 def main():
     transform = transforms.Compose([transforms.ToTensor()])
-    train_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+    train_dataset = datasets.MNIST(root="./data", train=True,  download=True, transform=transform)
+    test_dataset  = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
+    train_loader  = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    test_loader   = DataLoader(test_dataset,  batch_size=256, shuffle=False)
 
-    model = FPGACNN()
+    model     = FPGACNN()
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.5)
 
-    epochs = 8
+    epochs = 12
     for epoch in range(epochs):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
@@ -57,10 +67,11 @@ def main():
             optimizer.step()
             running_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
+            total   += labels.size(0)
             correct += (predicted == labels).sum().item()
+        scheduler.step()
         print(f"Epoch [{epoch+1}/{epochs}] loss={running_loss/len(train_loader):.4f} "
-              f"train_acc={100*correct/total:.2f}%")
+              f"train_acc={100*correct/total:.2f}%  lr={scheduler.get_last_lr()[0]:.5f}")
 
     # Test accuracy
     model.eval()
@@ -69,7 +80,7 @@ def main():
         for images, labels in test_loader:
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
+            total   += labels.size(0)
             correct += (predicted == labels).sum().item()
     print(f"Test accuracy: {100*correct/total:.2f}%")
 

@@ -1,19 +1,73 @@
 `timescale 1ns / 1ps
+// =====================================================================
+//  argmax10.v - Pipelined 10-way Argmax (3-Stage Latency)
+// =====================================================================
 module argmax10 (
-    input wire signed [31:0] v0, v1, v2, v3, v4, v5, v6, v7, v8, v9,
-    output reg [3:0] best_idx
+    input  wire        clk,
+    input  wire        rst,
+    input  wire signed [31:0] v0, v1, v2, v3, v4, v5, v6, v7, v8, v9,
+    output reg  [3:0]  best_idx
 );
-    always @(*) begin
-        best_idx = 0;
-        if (v1 > v0 && v1>=v2 && v1>=v3 && v1>=v4 && v1>=v5 && v1>=v6 && v1>=v7 && v1>=v8 && v1>=v9) best_idx = 1;
-        else if (v2 > v0 && v2>v1 && v2>=v3 && v2>=v4 && v2>=v5 && v2>=v6 && v2>=v7 && v2>=v8 && v2>=v9) best_idx = 2;
-        else if (v3 > v0 && v3>v1 && v3>v2 && v3>=v4 && v3>=v5 && v3>=v6 && v3>=v7 && v3>=v8 && v3>=v9) best_idx = 3;
-        else if (v4 > v0 && v4>v1 && v4>v2 && v4>v3 && v4>=v5 && v4>=v6 && v4>=v7 && v4>=v8 && v4>=v9) best_idx = 4;
-        else if (v5 > v0 && v5>v1 && v5>v2 && v5>v3 && v5>v4 && v5>=v6 && v5>=v7 && v5>=v8 && v5>=v9) best_idx = 5;
-        else if (v6 > v0 && v6>v1 && v6>v2 && v6>v3 && v6>v4 && v6>v5 && v6>=v7 && v6>=v8 && v6>=v9) best_idx = 6;
-        else if (v7 > v0 && v7>v1 && v7>v2 && v7>v3 && v7>v4 && v7>v5 && v7>v6 && v7>=v8 && v7>=v9) best_idx = 7;
-        else if (v8 > v0 && v8>v1 && v8>v2 && v8>v3 && v8>v4 && v8>v5 && v8>v6 && v8>v7 && v8>=v9) best_idx = 8;
-        else if (v9 > v0 && v9>v1 && v9>v2 && v9>v3 && v9>v4 && v9>v5 && v9>v6 && v9>v7 && v9>v8) best_idx = 9;
-        else best_idx = 0; // default / tie -> 0
+
+    // ---- Stage 1 Registers: 5 pairwise compares --------------------
+    reg signed [31:0] r1_val0, r1_val1, r1_val2, r1_val3, r1_val4;
+    reg        [3:0]  r1_idx0, r1_idx1, r1_idx2, r1_idx3, r1_idx4;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            {r1_val0, r1_idx0} <= {32'd0, 4'd0};
+            {r1_val1, r1_idx1} <= {32'd0, 4'd2};
+            {r1_val2, r1_idx2} <= {32'd0, 4'd4};
+            {r1_val3, r1_idx3} <= {32'd0, 4'd6};
+            {r1_val4, r1_idx4} <= {32'd0, 4'd8};
+        end else begin
+            {r1_val0, r1_idx0} <= (v0 >= v1) ? {v0, 4'd0} : {v1, 4'd1};
+            {r1_val1, r1_idx1} <= (v2 >= v3) ? {v2, 4'd2} : {v3, 4'd3};
+            {r1_val2, r1_idx2} <= (v4 >= v5) ? {v4, 4'd4} : {v5, 4'd5};
+            {r1_val3, r1_idx3} <= (v6 >= v7) ? {v6, 4'd6} : {v7, 4'd7};
+            {r1_val4, r1_idx4} <= (v8 >= v9) ? {v8, 4'd8} : {v9, 4'd9};
+        end
     end
+
+    // ---- Stage 2 Registers: 2 pairwise compares + 1 passthrough ----
+    reg signed [31:0] r2_val0, r2_val1, r2_val2;
+    reg        [3:0]  r2_idx0, r2_idx1, r2_idx2;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            {r2_val0, r2_idx0} <= {32'd0, 4'd0};
+            {r2_val1, r2_idx1} <= {32'd0, 4'd0};
+            {r2_val2, r2_idx2} <= {32'd0, 4'd0};
+        end else begin
+            {r2_val0, r2_idx0} <= (r1_val0 >= r1_val1) ? {r1_val0, r1_idx0} : {r1_val1, r1_idx1};
+            {r2_val1, r2_idx1} <= (r1_val2 >= r1_val3) ? {r1_val2, r1_idx2} : {r1_val3, r1_idx3};
+            r2_val2 <= r1_val4;
+            r2_idx2 <= r1_idx4;
+        end
+    end
+
+    // ---- Stage 3 Registers: Final compares -> output ----------------
+    reg signed [31:0] win_val01;
+    reg        [3:0]  win_idx01;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            best_idx <= 4'd0;
+        end else begin
+            if (r2_val0 >= r2_val1) begin
+                win_val01 = r2_val0;
+                win_idx01 = r2_idx0;
+            end else begin
+                win_val01 = r2_val1;
+                win_idx01 = r2_idx1;
+            end
+
+            if (win_val01 >= r2_val2) begin
+                best_idx <= win_idx01;
+            end else begin
+                best_idx <= r2_idx2;
+            end
+        end
+    end
+
 endmodule
