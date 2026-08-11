@@ -1,7 +1,7 @@
 # CNN-on-FPGA-Digit-classifier
 Verilog-based CNN accelerator for MNIST digit classification on the Digilent Basys3 FPGA, using INT8 fixed-point inference.
 # CNN Accelerator on FPGA — Basys3
-
+![Screenshot](./WhatsApp%20Image%202026-08-10%20at%2022.20.01.jpg)
 A **Version 1 CNN accelerator** implemented in Verilog HDL and deployed on the **Digilent Basys3 FPGA board**. The project explores how a small neural network can be mapped from software to an FPGA using fixed-point/integer arithmetic.
 
 The accelerator performs CNN inference for **MNIST handwritten-digit classification**.
